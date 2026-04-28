@@ -1,6 +1,7 @@
 package imessage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,11 +14,11 @@ import (
 // variable. Returns stdout (trimmed). Args are never interpolated into the
 // script body — all dynamic data goes through INPUT.
 func (c *Client) runJXA(ctx context.Context, script string, input any) (string, error) {
-	payload, err := json.Marshal(input)
+	payload, err := marshalForJS(input)
 	if err != nil {
 		return "", err
 	}
-	full := fmt.Sprintf("var INPUT = %s;\n%s", string(payload), script)
+	full := fmt.Sprintf("var INPUT = %s;\n%s", payload, script)
 	cmd := exec.CommandContext(ctx, c.osascriptPath, "-l", "JavaScript", "-e", full)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -28,6 +29,22 @@ func (c *Client) runJXA(ctx context.Context, script string, input any) (string, 
 		return "", fmt.Errorf("%w: %v: %s", ErrSendFailed, err, strings.TrimSpace(s))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// marshalForJS encodes v as JSON suitable for direct embedding inside a
+// JavaScript source file. Go's json.Marshal does not escape U+2028 (LINE
+// SEPARATOR) or U+2029 (PARAGRAPH SEPARATOR); these are valid JSON string
+// bytes but terminate JS string literals, so an unsanitized message body
+// containing them silently breaks the JXA script. We post-process the
+// marshaled bytes to escape them.
+func marshalForJS(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	b = bytes.ReplaceAll(b, []byte("\u2028"), []byte(`\u2028`))
+	b = bytes.ReplaceAll(b, []byte("\u2029"), []byte(`\u2029`))
+	return string(b), nil
 }
 
 func isAutomationDenied(s string) bool {

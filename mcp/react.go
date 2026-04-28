@@ -11,7 +11,7 @@ import (
 type ReactInput struct {
 	ChatGUID    string `json:"chat_guid" jsonschema:"description=GUID of the chat containing the target message,required"`
 	MessageGUID string `json:"message_guid" jsonschema:"description=GUID of the message being reacted to,required"`
-	Kind        string `json:"kind" jsonschema:"description=tapback type,enum=love,enum=like,enum=dislike,enum=laugh,enum=emphasize,enum=question,enum=remove_love,enum=remove_like,enum=remove_other,required"`
+	Kind        string `json:"kind" jsonschema:"description=tapback type (removal not supported via AppleScript),enum=love,enum=like,enum=dislike,enum=laugh,enum=emphasize,enum=question,required"`
 	Confirm     bool   `json:"confirm" jsonschema:"description=must be true when the host enforces send-confirmation,required"`
 }
 

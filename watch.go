@@ -72,6 +72,11 @@ LIMIT ?`, strings.Join(conds, " AND "))
 	if err != nil {
 		return WatchResult{}, err
 	}
+	if msgs == nil {
+		// Always return a non-nil slice so JSON encodes as [] not null;
+		// agents iterating the result expect an array.
+		msgs = []Message{}
+	}
 
 	cursor := p.SinceID
 	for _, m := range msgs {

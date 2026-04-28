@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -39,26 +40,44 @@ func (c *Client) SendMessage(ctx context.Context, p SendParams) error {
 		}
 	}
 
-	// Auto-route: if Recipient and no service specified, ask chat.db
-	// whether we've ever reached this handle on iMessage. If so, prefer
-	// it; otherwise fall back to SMS.
-	service := p.Service
-	if service == "" && p.Recipient != "" {
-		ok, _ := c.IsAvailableOnIMessage(ctx, p.Recipient)
-		if ok {
-			service = ServiceIMessage
-		} else {
-			service = ServiceSMS
-		}
+	service, err := c.routeService(ctx, p.Service, p.Recipient)
+	if err != nil {
+		return err
 	}
 
-	_, err := c.runJXA(ctx, jsxSendToBuddy, map[string]any{
+	_, err = c.runJXA(ctx, jsxSendToBuddy, map[string]any{
 		"body":      p.Body,
 		"chat_guid": p.ChatGUID,
 		"recipient": p.Recipient,
 		"service":   string(service),
 	})
 	return err
+}
+
+// routeService chooses the iMessage/SMS channel for a 1:1 send. When
+// service is explicitly set, returns it unchanged. When the recipient is
+// known to iMessage history, returns iMessage. When the DB is unreachable
+// (e.g. no Full Disk Access), defaults to iMessage rather than silently
+// falling back to SMS — SMS may incur carrier charges and is irreversible
+// once dispatched, so the safe default on uncertainty is iMessage.
+func (c *Client) routeService(ctx context.Context, override Service, recipient string) (Service, error) {
+	if override != "" {
+		return override, nil
+	}
+	if recipient == "" {
+		// Sending to an existing chat: let Messages.app pick.
+		return "", nil
+	}
+	ok, err := c.IsAvailableOnIMessage(ctx, recipient)
+	if err != nil {
+		// DB lookup failed (likely no FDA). Default to iMessage to avoid
+		// inadvertent SMS charges; the user can pass Service=SMS to force.
+		return ServiceIMessage, nil
+	}
+	if ok {
+		return ServiceIMessage, nil
+	}
+	return ServiceSMS, nil
 }
 
 // SendAttachment sends a file (with optional caption) to an existing chat
@@ -73,8 +92,19 @@ func (c *Client) SendAttachment(ctx context.Context, p SendAttachmentParams) err
 	if c.confirmSends && !p.Confirm {
 		return ErrConfirmRequired
 	}
-	if _, err := os.Stat(p.FilePath); err != nil {
+	absPath, err := filepath.Abs(p.FilePath)
+	if err != nil {
+		return fmt.Errorf("%w: resolve attachment path: %v", ErrInvalidParams, err)
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidParams, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%w: attachment %s is a directory", ErrInvalidParams, absPath)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("%w: attachment %s is empty", ErrInvalidParams, absPath)
 	}
 	if p.Recipient != "" {
 		if err := c.recipientAllowed(p.Recipient); err != nil {
@@ -85,18 +115,13 @@ func (c *Client) SendAttachment(ctx context.Context, p SendAttachmentParams) err
 			return err
 		}
 	}
-	service := p.Service
-	if service == "" && p.Recipient != "" {
-		ok, _ := c.IsAvailableOnIMessage(ctx, p.Recipient)
-		if ok {
-			service = ServiceIMessage
-		} else {
-			service = ServiceSMS
-		}
+	service, err := c.routeService(ctx, p.Service, p.Recipient)
+	if err != nil {
+		return err
 	}
-	_, err := c.runJXA(ctx, jsxSendToBuddy, map[string]any{
+	_, err = c.runJXA(ctx, jsxSendToBuddy, map[string]any{
 		"body":            p.Caption,
-		"attachment_path": p.FilePath,
+		"attachment_path": absPath,
 		"chat_guid":       p.ChatGUID,
 		"recipient":       p.Recipient,
 		"service":         string(service),
@@ -118,6 +143,13 @@ func (c *Client) React(ctx context.Context, p ReactParams) error {
 	}
 	if err := c.chatGUIDAllowed(ctx, p.ChatGUID); err != nil {
 		return err
+	}
+	switch p.Kind {
+	case ReactionRemoveLove, ReactionRemoveLike, ReactionRemoveOther:
+		// Removing a tapback requires sending an associated_message_type
+		// 3xxx event that AppleScript cannot construct. Sending a generic
+		// emoji would silently mislead the user, so refuse explicitly.
+		return fmt.Errorf("%w: tapback removal (%s) is not supported via AppleScript; use Messages.app directly", ErrInvalidParams, p.Kind)
 	}
 	emoji := tapbackEmoji(p.Kind)
 	if emoji == "" {
@@ -145,8 +177,6 @@ func tapbackEmoji(r Reaction) string {
 		return "‼️"
 	case ReactionQuestion:
 		return "❓"
-	case ReactionRemoveLove, ReactionRemoveLike, ReactionRemoveOther:
-		return "↩️"
 	}
 	return ""
 }

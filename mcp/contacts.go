@@ -26,7 +26,11 @@ func checkIMessage(ctx context.Context, c *imessage.Client, in CheckIMessageInpu
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"handle": in.Handle, "available": ok}, nil
+	return map[string]any{
+		"handle":     in.Handle,
+		"normalized": imessage.NormalizeHandle(in.Handle),
+		"available":  ok,
+	}, nil
 }
 
 var contactTools = []mcptool.Tool{

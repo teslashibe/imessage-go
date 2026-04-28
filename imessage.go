@@ -16,11 +16,9 @@ package imessage
 
 import (
 	"database/sql"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -43,7 +41,6 @@ type Client struct {
 	attachmentsDir string
 
 	osascriptPath  string
-	httpClient     *http.Client // reserved for future HTTP-based extensions
 	confirmSends   bool
 	allowedHandles map[string]struct{}
 	maxAttachBytes int64
@@ -71,7 +68,6 @@ func New(cfg Config, opts ...Option) *Client {
 		addressBookDir: firstNonEmpty(cfg.AddressBookDir, filepath.Join(home, "Library", "Application Support", "AddressBook", "Sources")),
 		attachmentsDir: firstNonEmpty(cfg.AttachmentsDir, filepath.Join(home, "Library", "Messages", "Attachments")),
 		osascriptPath:  defaultOsascriptPath,
-		httpClient:     &http.Client{Timeout: 30 * time.Second},
 		confirmSends:   true,
 		maxAttachBytes: defaultMaxAttachBytes,
 	}

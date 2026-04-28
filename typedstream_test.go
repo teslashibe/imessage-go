@@ -30,6 +30,36 @@ func TestDecodeAttributedBody_Empty(t *testing.T) {
 	}
 }
 
+func TestMarshalForJS_EscapesParaSeparators(t *testing.T) {
+	// U+2028 and U+2029 are valid JSON string bytes but terminate JS
+	// string literals. marshalForJS must escape them so the embedded
+	// payload remains a valid JS expression.
+	in := map[string]string{"body": "hello\u2028world\u2029!"}
+	out, err := marshalForJS(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, banned := range []string{"\u2028", "\u2029"} {
+		if contains := indexBytes([]byte(out), []byte(banned)); contains >= 0 {
+			t.Fatalf("marshalForJS leaked raw separator at %d in %q", contains, out)
+		}
+	}
+	for _, want := range []string{`\u2028`, `\u2029`} {
+		if contains := indexBytes([]byte(out), []byte(want)); contains < 0 {
+			t.Fatalf("marshalForJS missing escaped %q in %q", want, out)
+		}
+	}
+}
+
+func TestNormalizeHandleExported(t *testing.T) {
+	// The package-level NormalizeHandle wrapper must agree with the
+	// internal normalizer (drift would silently break the
+	// imessage_check_imessage tool's "normalized" return field).
+	if got, want := NormalizeHandle("+1 (415) 555-1212"), normalizeHandle("+1 (415) 555-1212"); got != want {
+		t.Fatalf("NormalizeHandle = %q, internal = %q", got, want)
+	}
+}
+
 func TestNormalizeHandle(t *testing.T) {
 	cases := map[string]string{
 		"+1 (415) 555-1212": "+14155551212",

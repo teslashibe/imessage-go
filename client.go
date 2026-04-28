@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strings"
 )
 
 // db opens chat.db lazily in read-only mode and caches the handle.
@@ -62,39 +63,11 @@ func isPermissionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	s := err.Error()
+	s := strings.ToLower(err.Error())
 	for _, marker := range []string{"permission denied", "operation not permitted", "unable to open database"} {
-		if containsFold(s, marker) {
+		if strings.Contains(s, marker) {
 			return true
 		}
 	}
 	return false
-}
-
-func containsFold(s, sub string) bool {
-	if len(sub) == 0 {
-		return true
-	}
-	if len(sub) > len(s) {
-		return false
-	}
-	// simple lowercase compare
-	ls := toLower(s)
-	lsub := toLower(sub)
-	for i := 0; i+len(lsub) <= len(ls); i++ {
-		if ls[i:i+len(lsub)] == lsub {
-			return true
-		}
-	}
-	return false
-}
-
-func toLower(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			b[i] = c + 32
-		}
-	}
-	return string(b)
 }

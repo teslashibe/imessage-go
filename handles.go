@@ -5,10 +5,13 @@ import (
 	"strings"
 )
 
-// normalizeHandle returns a canonical form of a phone number or email
+// NormalizeHandle returns a canonical form of a phone number or email
 // suitable for equality comparison. Phone numbers: strip whitespace,
 // punctuation, parentheses; preserve leading '+'. Emails: lowercase, trim.
-// Anything else: trim + lowercase.
+// Anything else: trim + lowercase. Useful for callers that maintain their
+// own contact maps and want to match the handle keys this package uses.
+func NormalizeHandle(h string) string { return normalizeHandle(h) }
+
 func normalizeHandle(h string) string {
 	h = strings.TrimSpace(h)
 	if h == "" {

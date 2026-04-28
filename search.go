@@ -118,6 +118,10 @@ func (c *Client) searchAttributedBodies(ctx context.Context, p SearchParams, wan
 		conds = append(conds, `cmj.chat_id = ?`)
 		args = append(args, p.ChatID)
 	}
+	if h := strings.TrimSpace(p.Handle); h != "" {
+		conds = append(conds, `h.id = ?`)
+		args = append(args, h)
+	}
 	if !p.Since.IsZero() {
 		conds = append(conds, `m.date >= ?`)
 		args = append(args, toAppleDate(p.Since))
@@ -125,6 +129,13 @@ func (c *Client) searchAttributedBodies(ctx context.Context, p SearchParams, wan
 	if !p.Until.IsZero() {
 		conds = append(conds, `m.date <= ?`)
 		args = append(args, toAppleDate(p.Until))
+	}
+	if p.FromMe != nil {
+		if *p.FromMe {
+			conds = append(conds, `m.is_from_me = 1`)
+		} else {
+			conds = append(conds, `m.is_from_me = 0`)
+		}
 	}
 
 	q := fmt.Sprintf(`
