@@ -56,17 +56,15 @@ func isAutomationDenied(s string) bool {
 	return false
 }
 
-// jsxSendToBuddy targets a specific buddy (handle) and lets Messages.app
-// pick the right service. service may be "iMessage" or "SMS" (or "" for
-// auto). When chatGuid is non-empty, sends to the existing chat directly.
+// jsxSendToBuddy targets a specific buddy (handle) or existing chat.
+// service may be "iMessage" or "SMS" (or "" for auto). When chatGuid is
+// non-empty, sends to that chat (1:1 OR group); otherwise resolves
+// recipient against the local chat list.
 //
-// macOS Tahoe (26+) removed services/buddies entirely; macOS Sonoma (14+)
-// removed .whose() from services. This script uses a chat-GUID-first
-// strategy that works across all versions:
-//   1. If chat_guid is provided, use it directly.
-//   2. If recipient is provided, look up the chat via any;-;{recipient}
-//      (Tahoe format), then fall back to iMessage;-; and SMS;-; prefixes,
-//      then fall back to the legacy services/buddies path (pre-Sonoma).
+// macOS Tahoe (26+) removed services/buddies entirely AND requires the
+// "any;" prefix on chat IDs. SQLite stores GUIDs as "iMessage;+;chat..."
+// but Messages.app only accepts "any;+;chat..." on Tahoe. We try both
+// the raw GUID and a "any;"-rewritten variant for compatibility.
 const jsxSendToBuddy = `
 (function() {
   var Messages = Application('Messages');
@@ -76,6 +74,28 @@ const jsxSendToBuddy = `
   var chatGuid = INPUT.chat_guid || '';
   var recipient = INPUT.recipient || '';
   var service = INPUT.service || '';
+
+  function chatGuidVariants(raw) {
+    var variants = [raw];
+    // SQLite-style "iMessage;+;chat..." or "iMessage;-;+phone" → "any;..."
+    var m = raw.match(/^(iMessage|SMS);([+-]);(.+)$/);
+    if (m) {
+      variants.push('any;' + m[2] + ';' + m[3]);
+    } else if (raw.indexOf(';') === -1) {
+      // Bare "chat..." identifier: prepend any;+;
+      variants.push('any;+;' + raw);
+    }
+    return variants;
+  }
+
+  function findChatByGuid(raw) {
+    var variants = chatGuidVariants(raw);
+    for (var i = 0; i < variants.length; i++) {
+      var found = Messages.chats.whose({ id: variants[i] });
+      if (found.length > 0) return found[0];
+    }
+    return null;
+  }
 
   function findChatByRecipient(rcpt, svc) {
     var prefixes = [];
@@ -114,9 +134,8 @@ const jsxSendToBuddy = `
 
   var target = null;
   if (chatGuid) {
-    var chats = Messages.chats.whose({ id: chatGuid });
-    if (chats.length === 0) throw new Error('chat not found: ' + chatGuid);
-    target = chats[0];
+    target = findChatByGuid(chatGuid);
+    if (!target) throw new Error('chat not found: ' + chatGuid + ' (tried raw + any;-prefixed variants)');
   } else if (recipient) {
     target = findChatByRecipient(recipient, service);
     if (!target) {
@@ -142,14 +161,35 @@ const jsxSendToBuddy = `
 // jsxReact issues a tapback against an existing message. Tapbacks are not
 // well exposed via Messages.app's scripting bridge in current macOS;
 // when unsupported we fall back to a textual indicator (e.g. "❤️").
+//
+// Uses the same chat-GUID variant lookup as jsxSendToBuddy so SQLite-style
+// "iMessage;+;chat..." GUIDs work on macOS Tahoe (which only accepts
+// "any;+;chat...").
 const jsxReact = `
 (function() {
   var Messages = Application('Messages');
   var chatGuid = INPUT.chat_guid;
   var emoji = INPUT.emoji || '❤️';
-  var chats = Messages.chats.whose({ id: chatGuid });
-  if (chats.length === 0) throw new Error('chat not found: ' + chatGuid);
-  Messages.send(emoji, { to: chats[0] });
+
+  function chatGuidVariants(raw) {
+    var variants = [raw];
+    var m = raw.match(/^(iMessage|SMS);([+-]);(.+)$/);
+    if (m) {
+      variants.push('any;' + m[2] + ';' + m[3]);
+    } else if (raw.indexOf(';') === -1) {
+      variants.push('any;+;' + raw);
+    }
+    return variants;
+  }
+
+  var target = null;
+  var variants = chatGuidVariants(chatGuid);
+  for (var i = 0; i < variants.length; i++) {
+    var found = Messages.chats.whose({ id: variants[i] });
+    if (found.length > 0) { target = found[0]; break; }
+  }
+  if (!target) throw new Error('chat not found: ' + chatGuid);
+  Messages.send(emoji, { to: target });
   return JSON.stringify({ ok: true, fallback: 'emoji_text' });
 })();
 `
