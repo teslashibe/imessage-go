@@ -59,6 +59,9 @@ func isAutomationDenied(s string) bool {
 // jsxSendToBuddy targets a specific buddy (handle) and lets Messages.app
 // pick the right service. service may be "iMessage" or "SMS" (or "" for
 // auto). When chatGuid is non-empty, sends to the existing chat directly.
+//
+// macOS Sonoma (14+) removed .whose() from Messages.services; we iterate
+// the services array with standard JS instead.
 const jsxSendToBuddy = `
 (function() {
   var Messages = Application('Messages');
@@ -69,6 +72,15 @@ const jsxSendToBuddy = `
   var recipient = INPUT.recipient || '';
   var service = INPUT.service || '';
 
+  function findServices(wantType) {
+    var all = Messages.services();
+    var matched = [];
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].serviceType() === wantType) matched.push(all[i]);
+    }
+    return matched;
+  }
+
   var target = null;
   if (chatGuid) {
     var chats = Messages.chats.whose({ id: chatGuid });
@@ -77,13 +89,13 @@ const jsxSendToBuddy = `
   } else if (recipient) {
     var svcs;
     if (service === 'SMS') {
-      svcs = Messages.services.whose({ serviceType: 'SMS' });
+      svcs = findServices('SMS');
     } else if (service === 'iMessage') {
-      svcs = Messages.services.whose({ serviceType: 'iMessage' });
+      svcs = findServices('iMessage');
     } else {
-      svcs = Messages.services.whose({ serviceType: 'iMessage' });
+      svcs = findServices('iMessage');
       if (svcs.length === 0) {
-        svcs = Messages.services.whose({ serviceType: 'SMS' });
+        svcs = findServices('SMS');
       }
     }
     if (svcs.length === 0) throw new Error('no enabled service for ' + (service || 'auto'));
