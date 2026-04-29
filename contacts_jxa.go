@@ -68,7 +68,9 @@ const jsxCreateContact = `
     lastName: INPUT.last_name || '',
     organization: INPUT.company || ''
   });
-  Contacts.add(p);
+  // JXA requires push() into the people collection — Contacts.add(p)
+  // returns "No error. (0)" silently and never persists.
+  Contacts.people.push(p);
 
   var phones = INPUT.phones || [];
   for (var i = 0; i < phones.length; i++) {

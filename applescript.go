@@ -26,7 +26,7 @@ func (c *Client) runJXA(ctx context.Context, script string, input any) (string, 
 		if isAutomationDenied(s) {
 			return "", fmt.Errorf("%w: %s", ErrAutomationPermission, strings.TrimSpace(s))
 		}
-		return "", fmt.Errorf("%w: %v: %s", ErrSendFailed, err, strings.TrimSpace(s))
+		return "", fmt.Errorf("%w: %v: %s", ErrJXAFailed, err, strings.TrimSpace(s))
 	}
 	return strings.TrimSpace(string(out)), nil
 }

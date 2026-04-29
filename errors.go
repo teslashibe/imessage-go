@@ -15,6 +15,7 @@ var (
 	ErrAttachmentTooLarge    = errors.New("imessage: attachment exceeds configured size cap")
 	ErrAttachmentMissingFile = errors.New("imessage: attachment file is missing on disk")
 	ErrSendFailed            = errors.New("imessage: send via Messages.app failed")
+	ErrJXAFailed             = errors.New("imessage: JXA bridge call failed")
 	ErrParseFailed           = errors.New("imessage: failed to parse database row")
 	ErrUnknownService        = errors.New("imessage: unknown service (must be iMessage or SMS)")
 )
