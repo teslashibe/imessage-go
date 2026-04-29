@@ -60,8 +60,13 @@ func isAutomationDenied(s string) bool {
 // pick the right service. service may be "iMessage" or "SMS" (or "" for
 // auto). When chatGuid is non-empty, sends to the existing chat directly.
 //
-// macOS Sonoma (14+) removed .whose() from Messages.services; we iterate
-// the services array with standard JS instead.
+// macOS Tahoe (26+) removed services/buddies entirely; macOS Sonoma (14+)
+// removed .whose() from services. This script uses a chat-GUID-first
+// strategy that works across all versions:
+//   1. If chat_guid is provided, use it directly.
+//   2. If recipient is provided, look up the chat via any;-;{recipient}
+//      (Tahoe format), then fall back to iMessage;-; and SMS;-; prefixes,
+//      then fall back to the legacy services/buddies path (pre-Sonoma).
 const jsxSendToBuddy = `
 (function() {
   var Messages = Application('Messages');
@@ -72,13 +77,39 @@ const jsxSendToBuddy = `
   var recipient = INPUT.recipient || '';
   var service = INPUT.service || '';
 
-  function findServices(wantType) {
-    var all = Messages.services();
-    var matched = [];
-    for (var i = 0; i < all.length; i++) {
-      if (all[i].serviceType() === wantType) matched.push(all[i]);
+  function findChatByRecipient(rcpt, svc) {
+    var prefixes = [];
+    if (svc === 'SMS') {
+      prefixes = ['SMS;-;', 'any;-;'];
+    } else if (svc === 'iMessage') {
+      prefixes = ['iMessage;-;', 'any;-;'];
+    } else {
+      prefixes = ['any;-;', 'iMessage;-;', 'SMS;-;'];
     }
-    return matched;
+    for (var i = 0; i < prefixes.length; i++) {
+      var id = prefixes[i] + rcpt;
+      var found = Messages.chats.whose({ id: id });
+      if (found.length > 0) return found[0];
+    }
+    return null;
+  }
+
+  function findServicesBuddy(rcpt, svc) {
+    try {
+      var all = Messages.services();
+      var wantType = (svc === 'SMS') ? 'SMS' : 'iMessage';
+      var matched = [];
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].serviceType() === wantType) matched.push(all[i]);
+      }
+      if (matched.length === 0 && svc === '') {
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].serviceType() === 'SMS') matched.push(all[i]);
+        }
+      }
+      if (matched.length > 0) return matched[0].buddies.byName(rcpt);
+    } catch(e) {}
+    return null;
   }
 
   var target = null;
@@ -87,19 +118,13 @@ const jsxSendToBuddy = `
     if (chats.length === 0) throw new Error('chat not found: ' + chatGuid);
     target = chats[0];
   } else if (recipient) {
-    var svcs;
-    if (service === 'SMS') {
-      svcs = findServices('SMS');
-    } else if (service === 'iMessage') {
-      svcs = findServices('iMessage');
-    } else {
-      svcs = findServices('iMessage');
-      if (svcs.length === 0) {
-        svcs = findServices('SMS');
-      }
+    target = findChatByRecipient(recipient, service);
+    if (!target) {
+      target = findServicesBuddy(recipient, service);
     }
-    if (svcs.length === 0) throw new Error('no enabled service for ' + (service || 'auto'));
-    target = svcs[0].buddies.byName(recipient);
+    if (!target) {
+      throw new Error('no chat found for ' + recipient + ' — send a message from Messages.app first to establish the thread, then retry');
+    }
   } else {
     throw new Error('chat_guid or recipient required');
   }
